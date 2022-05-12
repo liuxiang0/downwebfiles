@@ -1,5 +1,6 @@
 import sys
 from time import time
+from cv2 import HoughCircles
 import requests
 import os
 #from clint.textui import progress
@@ -16,7 +17,7 @@ def parser():
     all_args.add_argument("-U", "--url", required=True,
     help="web网址")
     all_args.add_argument("-F", "--downfile", required=False,
-    help="文件名")
+    help="文件名(可选项)")
     #all_args.add_argument("-S", "--savefile", required=False,
     #help="保存的本地文件名(可选)，缺省为原文件名")
     args = vars(all_args.parse_args())  # to Dict
@@ -64,6 +65,7 @@ def download(url, file_path):
     1. 对于小文件，无须分段传输，如何分解出小文件的直接下载？
     2. 对于超大文件，如何多线程下载？
     3. 最好都改成 urllib 的调用。
+    4. 如果中途退出，如何无人值守自动启动上一次命令？
     '''
     # 屏蔽warning信息
     requests.packages.urllib3.disable_warnings()    
@@ -110,12 +112,22 @@ def downloadDirectory(url):
     for oneurl in urls:
         download(url, oneurl)
 
+def spend(secs):
+    '''given: seconds from time.time()-start
+    return: xx 小时 xx 分 xx 秒！'''
+
+    seconds = round(secs)
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = (seconds % 3600) % 60
+    return "{0}小时 {1}分 {2}秒".format(hours,minutes,seconds)
 
  
 if __name__ == '__main__':
     args = parser()
     url = args['url']
     downfile = args['downfile']
+
     start = time()
     if downfile is None: # 下载整个网页中包含的websites
         downloadDirectory(url)
@@ -123,4 +135,4 @@ if __name__ == '__main__':
         download_url = '/'.join([url,downfile])
         download(download_url, downfile)
     
-    print(f"下载用时: {time() - start}")
+    print(r"下载用时: {0}".format(spend(time() - start)))
