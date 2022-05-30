@@ -3,6 +3,16 @@ import os
 from bs4 import BeautifulSoup as soup
 import urllib.request as urlreq
 import re
+from user_agents import parse
+from random import choice
+
+def getUA():
+    user_agents = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0",
+    "Mozilla/5.0 (X11; Linux x86_64; Win64; x64; rv:95.0) Gecko/20100101 Firefox/95.0"
+    ]
+    return {'User-Agent': str(parse(choice(user_agents)))}
 
 def parserArgs():
     '''指定程序运行的参数设置'''
@@ -27,6 +37,26 @@ def getDatum(url):
     datum = client.read().decode('utf-8') # 解码后的数据集
     client.close()
     return datum
+
+def getHRefs(url):
+    '''url: 给定的网络连接website
+    return: 指定网站包含的超链接列表
+    调用模块：requests
+
+    '''
+    response = requests.get(url, headers=getUA())
+    #print(response.headers)
+    if response.status_code == 200:
+        rData = response.text # convert to UTF-8 encoding string
+        #While .content gives you access to the raw bytes of the response payload,
+    else:
+        rData = ''
+    response.close()
+
+    if rData == '':
+        return None
+    refsList = soup(rData, "html.parser").findAll(href=True)
+    return [refsList[i]['href'] for i in range(len(refsList))]
 
 def soupURLs(url):
     '''url: 给定的网络连接website
@@ -134,10 +164,53 @@ def testRe(raw_text):
     for href in msg_href:
         print(href)
 
+def GetURLData(url):
+    req = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'},\
+                    allow_redirects=True) #cookies=True, files=,,verify=
+    print(req.status_code)  #200
+    print(req.encoding)  #utf-8
+    print(req.elapsed)   #0:00:00.518855
+    print(req.url)       #https://tutsplus.com/
+    print(req.history)   #[<Response [301]>, <Response [301]>]
+    print(req.cookies)   #<RequestsCookieJar[]>
+    print(req.headers['Content-Type'])  #text/html; charset=utf-8
+    #print(req.text)
+    #print(req.json)
+
+
+def downone(url, savedfile):
+    '''一次性下载小文件，并保存至 savedfile.'''
+
+    response = requests.get(url, headers=getUA())
+    if response.status_code == 200:
+        rData = response.content
+    else:
+        rData = ''
+    response.close()
+    with open(savedfile, "wb") as f:
+        f.write(rData)
+
 if __name__ == '__main__' :
-    url = 'https://openslr.magicdatatech.com/resources/60/'
-    data = getDatum(url)
-    testRe(data)
+    url = 'https://openslr.magicdatatech.com/resources/3/'
+    
+    a = url.split('/')
+    for i in range(1, len(a)):
+        if a[-i] != '':
+            savedir = a[-i]
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
+
+    for b in getHRefs(url=url)[5:]:
+        f = '/'.join([url, b])
+        print("正在下载{0}...".format(f))
+        savedfile = '/'.join([savedir,b])
+        downone(f, savedfile)
+
+    #url = 'http://www.tutsplus.com/'
+    #GetURLData(url)
+
+    #data = getDatum(url)
+    #testRe(data)
 
     #urllist = soupURLs(url)
     

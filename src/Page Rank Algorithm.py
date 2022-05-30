@@ -26,6 +26,9 @@ i.e. the PageRank value for a page u is dependent on the PageRank values for eac
 Following is the code for the calculation of the Page rank. 
 '''
 
+import networkx as nx
+from networkx import NetworkXError
+
 def pagerank(G, alpha=0.85, personalization=None,
 			max_iter=100, tol=1.0e-6, nstart=None, weight='weight',
 			dangling=None):

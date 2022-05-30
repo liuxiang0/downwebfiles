@@ -1,62 +1,73 @@
+from secrets import choice
 import sys
-from time import time
+from time import time, localtime
 from cv2 import HoughCircles
 import requests
 import os
 #from clint.textui import progress
-import argparse
 from bs4 import BeautifulSoup as soup
 import urllib.request as urlreq
 import re
 
-def parser():
-    # Construct an argument parser
-    all_args = argparse.ArgumentParser(description='下载大文件，支持断点续传，仅供参考！')
+from parsers import parser, spend, getUA
 
-    # Add arguments to the parser
-    all_args.add_argument("-U", "--url", required=True,
-    help="web网址")
-    all_args.add_argument("-F", "--downfile", required=False,
-    help="文件名(可选项)")
-    #all_args.add_argument("-S", "--savefile", required=False,
-    #help="保存的本地文件名(可选)，缺省为原文件名")
-    args = vars(all_args.parse_args())  # to Dict
-    return args
- 
-def soupURLs(url):
+SMALLFILE = 512000  # 500KB 
+
+def getHRefs(url):
+    '''url: 给定的网络连接website
+    return: 指定网站包含的超链接列表
+    调用模块：requests
+
+    '''
+    response = requests.get(url, headers=getUA())
+    if response.status_code == 200:
+        rData = response.text
+    else:
+        rData = ''
+        raise ConnectionError()
+
+    #print(response.headers)  #debug info
+    response.close()
+
+    if rData == '':
+        return None
+    refsList = soup(rData, "html.parser").findAll(href=True)
+    return [refsList[i]['href'] for i in range(len(refsList))]
+
+
+def parserHRefs(url):
     '''url: 给定的网络连接website
     return: 指定网站包含的 超链接列表List, 每项形如 <a href="dev-clean.tar.gz">dev-clean.tar.gz</a>
     '''
     
-    req = urlreq.Request(url,headers={'User-Agent': 'Mozilla/5.0'})
-    client = urlreq.urlopen(req)
-    datum = client.read().decode('utf-8') # 解码后的数据集
-    client.close() 
-
-    pagesoup = soup(datum, "html.parser") #.contents
-    #el = pagesoup.find(href=True), print(el['href']) 
-    elements = pagesoup.findAll(href=True)  #type(elements) is <class 'bs4.element.ResultSet'>
-    return [elements[i]['href'] for i in range(len(elements))]
-
-def parserURLs(url):
-    '''url: 给定的网络连接website
-    return: 指定网站包含的 超链接列表List, 每项形如 <a href="dev-clean.tar.gz">dev-clean.tar.gz</a>
-    '''
-    
-    req = urlreq.Request(url,headers={'User-Agent': 'Mozilla/5.0'})
-    client = urlreq.urlopen(req)
-    datum = client.read().decode('utf-8') # 解码后的数据集
-    client.close() 
+    req = requests.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    datum = req.text
+    req.close() 
 
     pagesoup = soup(datum, "html.parser").contents
     #soup()得到的结果类型 --type(pagesoup)-- 是 <class 'bs4.BeautifulSoup'>
     #soup(*).contents得到列表形式的内容List.
 
     #raw_text = str(pagesoup) 将列表信息变成字符串信息, 否则报错
+    # TypeError: cannot use a string pattern on a bytes-like object Solution
     # 建立正则表达式(Regular Expression), 解析出 href 
-    res = r"<a .*?href=.*?<\/a>"
-    # 仍然含有 href 等字样，改用 soupURLs(url)
+    res = r'<a href="(.*?)">'
+    # 仍然含有 href 等字样，改用 getHRefs(url)
     return re.findall(res, str(pagesoup), re.I) 
+
+
+def downone(url, savedfile):
+    '''一次性下载小文件，并保存至 savedfile.'''
+
+    response = requests.get(url, headers=getUA())
+    if response.status_code == 200:
+        rData = response.content
+    else:
+        raise ConnectionError()
+        #rData = ''
+    response.close()
+    with open(savedfile, "wb") as f:
+        f.write(rData)
 
 
 def download(url, file_path):
@@ -72,55 +83,43 @@ def download(url, file_path):
     # 第一次请求是为了得到文件总大小
     r1 = requests.get(url, stream=True, verify=False)
     total_size = int(r1.headers['Content-Length'])
- 
-    # 这重要了，先看看本地文件下载了多少
+    
     if os.path.exists(file_path):
         temp_size = os.path.getsize(file_path)  # 本地已经下载的文件大小
     else:
         temp_size = 0
-    # 显示一下下载了多少
-    print(temp_size)
-    print(total_size)
-    # 核心部分，这个是请求下载时，从本地文件已经下载过的后面下载
+    # 显示一下下载了多少, 共有多少
+    print("已下载了{0}，共有{1} !".format(temp_size, total_size))
+    # 核心部分，请求下载时，从本地文件已经下载过的后面下载，断点续传开始...
     headers = {'Range': 'bytes=%d-' % temp_size}
-    # 重新请求网址，加入新的请求头的
+    # 重新请求网址，加入新的请求头
     r = requests.get(url, stream=True, verify=False, headers=headers)
- 
-    # 下面写入文件也要注意，看到"ab"了吗？
-    # "ab"表示追加形式写入文件
+
+    # 写入文件要注意:"ab"表示追加形式写入文件
     with open(file_path, "ab") as f:
         #for chunk in progress.bar(r.iter_content(chunk_size = 2391975), expected_size=(total_size/1024) + 1):
-        for chunk in r.iter_content(chunk_size=51200): #1024=1K, 51200=500K, 1048576=1M
+        for chunk in r.iter_content(chunk_size=SMALLFILE): #51200=500K, 1048576=1M
             if chunk:
                 temp_size += len(chunk)
                 f.write(chunk)
                 f.flush()
- 
-                ###这是下载实现进度显示####
+
+                #这是下载实现进度显示
                 done = int(50 * temp_size / total_size)
                 sys.stdout.write("\r[%s%s] %d%%" % ('█' * done, ' ' * (50 - done), 100 * temp_size / total_size))
                 sys.stdout.flush()
     print()  # 避免上面\r 回车符
 
-def downloadDirectory(url):
-    '''下载指定互联网地址中的整个目录'''
 
-    urls = soupURLs(url)
+def downloadDirectory(url, savedir):
+    '''下载指定互联网地址中的整个目录下的 href 超链接内容'''
+
+    urls = getHRefs(url)
     # Notes: 跳过前面5个没有用的数据
-    urls = urls[5:]
-
-    for oneurl in urls:
-        download(url, oneurl)
-
-def spend(secs):
-    '''given: seconds from time.time()-start
-    return: xx 小时 xx 分 xx 秒！'''
-
-    seconds = round(secs)
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    seconds = (seconds % 3600) % 60
-    return "{0}小时 {1}分 {2}秒".format(hours,minutes,seconds)
+    # urls = urls[5:]
+    for one in urls:
+        print("正在下载{0}...".format(one))
+        download('/'.join([url,one]), '/'.join([savedir, one]))
 
  
 if __name__ == '__main__':
@@ -129,10 +128,22 @@ if __name__ == '__main__':
     downfile = args['downfile']
 
     start = time()
+    
+    # 创建目录
+    savedir = ''
+    a = url.split('/')  #有没有'\'为分隔符?
+    for i in range(1, len(a)):
+        if a[-i] != '':
+            savedir = a[-i]
+            break
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
+
     if downfile is None: # 下载整个网页中包含的websites
-        downloadDirectory(url)
+        downloadDirectory(url, savedir)
     else:
-        download_url = '/'.join([url,downfile])
-        download(download_url, downfile)
+        download_url = '/'.join([url, downfile])
+        download(download_url, '/'.join([savedir, downfile]))
     
     print(r"下载用时: {0}".format(spend(time() - start)))
+    print(r"结束时间：{}".format(localtime()))
